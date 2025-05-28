@@ -31,6 +31,7 @@ def keep_alive():
 def get_klines(symbol, interval='1d', limit=100):
     url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
     response = requests.get(url)
+    print(f"DEBUG {symbol}: {response.status_code} - {response.text}")
     return response.json()
 
 def calculate_rsi(closes, period=14):
