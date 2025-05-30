@@ -127,43 +127,42 @@ def analyze_klines(klines):
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
-    symbol = message.text.strip().upper()
+    text = message.text.strip().upper().split()
+    symbol = text[0]
+    interval = '1day'  # Default
 
-    if symbol == "ETH":
-        symbols = ["ETH"]
-    else:
-        symbols = [symbol]
+    if len(text) > 1:
+        interval = text[1]
 
-    for sym in symbols:
-        try:
-            klines = get_klines_twelvedata(sym)
-            if klines:
-                price, rsi, ema_trend, ema_signal, candle_pattern, final_recommendation = analyze_klines(klines)
+    try:
+        klines = get_klines_twelvedata(symbol, interval)
+        if klines:
+            price, rsi, ema_trend, ema_signal, candle_pattern, final_recommendation = analyze_klines(klines)
 
-                msg = (
-                    f"🔍 {sym}/USD [1D]\n"
-                    f"💰 Price: ${price:.2f}\n"
-                    f"📊 RSI(14): {rsi:.2f}\n"
-                    f"📈 EMA Trend: {ema_trend}\n"
-                    f"🪙 EMA Signal: {ema_signal}\n"
-                    f"🕯️ Candle: {candle_pattern}\n"
-                    f"📌 Recommendation: {final_recommendation}"
-                )
-            else:
-                raise ValueError("No Klines from TwelveData")
+            msg = (
+                f"🔍 {symbol}/USD [{interval}]\n"
+                f"💰 Price: ${price:.2f}\n"
+                f"📊 RSI(14): {rsi:.2f}\n"
+                f"📈 EMA Trend: {ema_trend}\n"
+                f"🪙 EMA Signal: {ema_signal}\n"
+                f"🕯️ Candle: {candle_pattern}\n"
+                f"📌 Recommendation: {final_recommendation}"
+            )
+        else:
+            raise ValueError("No Klines from TwelveData")
 
-        except Exception as e:
-            price = get_price_coinmarketcap(sym)
-            if price:
-                msg = (
-                    f"🔍 {sym}/USD\n"
-                    f"💰 Price: ${price:.2f}\n"
-                    f"⚠️ Limited data (Price only)"
-                )
-            else:
-                msg = f"⚠️ No data available for {sym}"
+    except Exception as e:
+        price = get_price_coinmarketcap(symbol)
+        if price:
+            msg = (
+                f"🔍 {symbol}/USD\n"
+                f"💰 Price: ${price:.2f}\n"
+                f"⚠️ Limited data (Price only)"
+            )
+        else:
+            msg = f"⚠️ No data available for {symbol}"
 
-        bot.reply_to(message, msg)
+    bot.reply_to(message, msg)
 
 # ====== Start Bot ======
 
