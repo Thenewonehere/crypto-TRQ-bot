@@ -1,20 +1,24 @@
 import os
 import requests
 import numpy as np
+import schedule
+import time
 from flask import Flask
 from threading import Thread
 import telebot
+from datetime import datetime
 
 TOKEN = os.getenv("BOT_TOKEN")
 TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY")
 CMC_API_KEY = os.getenv("CMC_API_KEY")
+CHANNEL_ID = "@Crypto_TRQ_Bot"
 
 bot = telebot.TeleBot(TOKEN)
 
 # ====== Functions ======
 
 def get_klines_twelvedata(symbol, interval='1day', outputsize=100):
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}/USD&interval={interval}&outputsize={outputsize}&apikey={TWELVE_DATA_API_KEY}"
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize={outputsize}&apikey={TWELVE_DATA_API_KEY}"
     response = requests.get(url)
     if response.status_code == 200:
         data = response.json()
@@ -45,6 +49,28 @@ def get_price_coinmarketcap(symbol):
         return price
     else:
         return None
+
+def get_btc_dominance():
+    url = "https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/latest"
+    headers = {
+        "Accepts": "application/json",
+        "X-CMC_PRO_API_KEY": CMC_API_KEY,
+    }
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        data = response.json()
+        dominance = data['data']['btc_dominance']
+        return dominance
+    else:
+        return None
+
+def btc_dominance_recommendation(dominance):
+    if dominance > 52:
+        return "📈 الهيمنة مرتفعة — قد تفضل البيتكوين، احذر من ضعف العملات البديلة."
+    elif dominance < 48:
+        return "📉 الهيمنة منخفضة — فرصة لصعود العملات البديلة (Altseason محتمل)."
+    else:
+        return "⚖️ الهيمنة متوازنة — لا تفوق واضح للبيتكوين أو العملات البديلة."
 
 def calculate_rsi(closes, period=14):
     deltas = np.diff(closes)
@@ -167,43 +193,66 @@ def analyze_klines(klines):
 
     return current_price, candle_pattern, final_recommendation, volatility
 
+def daily_report():
+    symbols = ["XRP/USD", "BTC/USD", "ETH/USD", "ETH/BTC", "DOT/USD", "RSR/USD", "JASMY/USD", "KDA/USD", "FIL/USD", "ARB/USD"]
+    report = f"🗓️ تقرير التحليل الفني اليومي\n📅 التاريخ: {datetime.now().strftime('%Y-%m-%d')}\n\n"
+
+    for symbol in symbols:
+        try:
+            klines = get_klines_twelvedata(symbol)
+            if klines:
+                price, candle_pattern, final_recommendation, volatility = analyze_klines(klines)
+
+                report += (
+                    f"---------------------------\n"
+                    f"🔍 تحليل {symbol} [1D]\n"
+                    f"💰 السعر الحالي: ${price:.2f}\n"
+                    f"📌 التوصية النهائية: {final_recommendation}\n"
+                    f"🕯️ نمط الشمعة: {candle_pattern}\n"
+                    f"🌡️ {volatility}\n"
+                    f"✅ الملخص: القرار يميل إلى {final_recommendation.split()[1]} مع {volatility.split('—')[1]}.\n"
+                )
+        except Exception as e:
+            continue
+
+    dominance = get_btc_dominance()
+    dominance_recommendation = btc_dominance_recommendation(dominance)
+
+    report += (
+        f"---------------------------\n"
+        f"📈 Bitcoin Dominance (BTC.D)\n"
+        f"🔹 النسبة الحالية: {dominance:.2f}%\n"
+        f"📊 التوصية: {dominance_recommendation}\n"
+    )
+
+    bot.send_message(CHANNEL_ID, report)
+
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
-    text = message.text.strip().upper().split()
-    symbol = text[0]
-    interval = '1day'
+    text = message.text.strip().upper()
 
-    if len(text) > 1:
-        interval = text[1]
+    if text == "ETH":
+        symbols = ["ETH/USD", "ETH/BTC"]
+    else:
+        symbols = [f"{text}/USD"]
 
-    try:
-        klines = get_klines_twelvedata(symbol, interval)
-        if klines:
-            price, candle_pattern, final_recommendation, volatility = analyze_klines(klines)
+    for symbol in symbols:
+        try:
+            klines = get_klines_twelvedata(symbol)
+            if klines:
+                price, candle_pattern, final_recommendation, volatility = analyze_klines(klines)
 
-            msg = (
-                f"🔍 تحليل {symbol}/USD [{interval}]\n"
-                f"💰 السعر الحالي: ${price:.2f}\n"
-                f"📌 التوصية النهائية: {final_recommendation}\n\n"
-                f"🕯️ نمط الشمعة: {candle_pattern}\n"
-                f"🌡️ {volatility}\n\n"
-                f"✅ الملخص: بناءً على التحليل، القرار يميل إلى {final_recommendation.split()[1]} مع {volatility.split('—')[1]}."
-            )
-        else:
-            raise ValueError("No Klines from TwelveData")
-
-    except Exception as e:
-        price = get_price_coinmarketcap(symbol)
-        if price:
-            msg = (
-                f"🔍 تحليل {symbol}/USD\n"
-                f"💰 السعر الحالي: ${price:.2f}\n"
-                f"⚠️ البيانات المتوفرة محدودة (السعر فقط)"
-            )
-        else:
-            msg = f"⚠️ لا توجد بيانات متوفرة للرمز {symbol}"
-
-    bot.reply_to(message, msg)
+                msg = (
+                    f"🔍 تحليل {symbol} [1D]\n"
+                    f"💰 السعر الحالي: ${price:.2f}\n"
+                    f"📌 التوصية النهائية: {final_recommendation}\n"
+                    f"🕯️ نمط الشمعة: {candle_pattern}\n"
+                    f"🌡️ {volatility}\n"
+                    f"✅ الملخص: بناءً على التحليل، القرار يميل إلى {final_recommendation.split()[1]} مع {volatility.split('—')[1]}."
+                )
+                bot.reply_to(message, msg)
+        except Exception as e:
+            bot.reply_to(message, f"⚠️ لا توجد بيانات متوفرة للرمز {symbol}.")
 
 # ====== Start Bot ======
 
@@ -216,6 +265,13 @@ def home():
 def start_bot():
     bot.infinity_polling()
 
+def scheduler():
+    schedule.every().day.at("04:10").do(daily_report)
+    while True:
+        schedule.run_pending()
+        time.sleep(60)
+
 if __name__ == "__main__":
     Thread(target=start_bot).start()
+    Thread(target=scheduler).start()
     app.run(host="0.0.0.0", port=8080)
