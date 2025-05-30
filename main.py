@@ -26,8 +26,7 @@ def get_klines_twelvedata(symbol, interval='1day', outputsize=100):
                     float(item['open']),
                     float(item['high']),
                     float(item['low']),
-                    float(item['close']),
-                    float(item['volume'])
+                    float(item['close'])
                 ]
                 klines.append(kline)
             return klines
@@ -128,28 +127,27 @@ def handle_message(message):
                 price, rsi, ema_trend, ema_signal, candle_pattern, rsi_signal, ema_cross_signal = analyze_klines(klines)
 
                 msg = (
-                    f"\ud83d\udd0d {sym}/USD [1D]\n"
-                    f"\ud83d\udcb0 Price: ${price:.2f}\n"
-                    f"\ud83d\udcca RSI(14): {rsi:.2f}\n"
-                    f"\ud83d\udcc8 EMA Trend: {ema_trend}\n"
-                    f"\ud83e\udeb9 EMA Signal: {ema_signal}\n"
-                    f"\ud83d\udd2f Candle: {candle_pattern}\n"
-                    f"\ud83d\udccc Recommendation:\n{rsi_signal}\n{ema_cross_signal}"
+                    f"🔍 {sym}/USD [1D]\n"
+                    f"💰 Price: ${price:.2f}\n"
+                    f"📊 RSI(14): {rsi:.2f}\n"
+                    f"📈 EMA Trend: {ema_trend}\n"
+                    f"🪙 EMA Signal: {ema_signal}\n"
+                    f"🕯️ Candle: {candle_pattern}\n"
+                    f"📌 Recommendation:\n{rsi_signal}\n{ema_cross_signal}"
                 )
             else:
-                # fallback to CoinMarketCap price only
-                price = get_price_coinmarketcap(sym)
-                if price:
-                    msg = (
-                        f"\ud83d\udd0d {sym}/USD\n"
-                        f"\ud83d\udcb0 Price: ${price:.2f}\n"
-                        f"⚠️ Limited data (Price only)"
-                    )
-                else:
-                    msg = f"⚠️ No data available for {sym}"
+                raise ValueError("No Klines from TwelveData")
 
         except Exception as e:
-            msg = f"⚠️ Error fetching {sym}: {str(e)}"
+            price = get_price_coinmarketcap(sym)
+            if price:
+                msg = (
+                    f"🔍 {sym}/USD\n"
+                    f"💰 Price: ${price:.2f}\n"
+                    f"⚠️ Limited data (Price only)"
+                )
+            else:
+                msg = f"⚠️ No data available for {sym}"
 
         bot.reply_to(message, msg)
 
