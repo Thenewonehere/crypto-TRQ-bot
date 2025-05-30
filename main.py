@@ -72,6 +72,31 @@ def calculate_rsi(closes, period=14):
 
     return rsi[-1]
 
+def calculate_macd(closes, slow=26, fast=12, signal=9):
+    ema_fast = np.convolve(closes, np.ones(fast)/fast, mode='valid')
+    ema_slow = np.convolve(closes, np.ones(slow)/slow, mode='valid')
+    macd_line = ema_fast[-len(ema_slow):] - ema_slow
+    signal_line = np.convolve(macd_line, np.ones(signal)/signal, mode='valid')
+    macd_hist = macd_line[-len(signal_line):] - signal_line
+    return macd_hist[-1]
+
+def calculate_stochastic_rsi(closes, period=14):
+    rsi_series = []
+    for i in range(period, len(closes)):
+        window = closes[i - period:i]
+        rsi = calculate_rsi(window, period)
+        rsi_series.append(rsi)
+    lowest_rsi = min(rsi_series)
+    highest_rsi = max(rsi_series)
+    current_rsi = rsi_series[-1]
+    stochastic_rsi = (current_rsi - lowest_rsi) / (highest_rsi - lowest_rsi) * 100
+    return stochastic_rsi
+
+def calculate_atr(highs, lows, closes, period=14):
+    tr = np.maximum(highs[1:], closes[:-1]) - np.minimum(lows[1:], closes[:-1])
+    atr = np.mean(tr[-period:])
+    return atr
+
 def detect_candle_pattern(opens, highs, lows, closes):
     body = abs(closes[-1] - opens[-1])
     candle_range = highs[-1] - lows[-1]
@@ -90,18 +115,6 @@ def detect_candle_pattern(opens, highs, lows, closes):
         return "Bearish Engulfing"
     return "No clear pattern"
 
-def get_final_recommendation(rsi_signal, ema_cross_signal):
-    if rsi_signal == "🟢 Buy Signal" and ema_cross_signal == "🟢 Buy Signal":
-        return "🟢 Strong Buy"
-    elif rsi_signal == "🔴 Sell Signal" and ema_cross_signal == "🔴 Sell Signal":
-        return "🔴 Strong Sell"
-    elif rsi_signal == "🟢 Buy Signal" and ema_cross_signal == "⚪ No Signal":
-        return "🟢 Weak Buy"
-    elif rsi_signal == "🔴 Sell Signal" and ema_cross_signal == "⚪ No Signal":
-        return "🔴 Weak Sell"
-    else:
-        return "🟠 Mixed Signal"
-
 def analyze_klines(klines):
     closes = np.array([float(k[4]) for k in klines], dtype=np.float64)
     opens = np.array([float(k[1]) for k in klines], dtype=np.float64)
@@ -109,21 +122,14 @@ def analyze_klines(klines):
     lows = np.array([float(k[3]) for k in klines], dtype=np.float64)
 
     current_price = closes[-1]
-    ema50 = np.mean(closes[-50:])
-    ema200 = np.mean(closes[-200:])
-
-    ema_trend = "✅ Bullish" if ema50 > ema200 else "🚨 Bearish"
-    ema_signal = "✅ Golden Cross" if ema50 > ema200 else "🔻 Death Cross"
 
     rsi = calculate_rsi(closes)
+    macd = calculate_macd(closes)
+    stochastic_rsi = calculate_stochastic_rsi(closes)
+    atr = calculate_atr(highs, lows, closes)
     candle_pattern = detect_candle_pattern(opens, highs, lows, closes)
 
-    rsi_signal = "🟢 Buy Signal" if rsi < 30 else ("🔴 Sell Signal" if rsi > 70 else "⚪ No Signal")
-    ema_cross_signal = "🟢 Buy Signal" if ema50 > ema200 else "🔴 Sell Signal"
-
-    final_recommendation = get_final_recommendation(rsi_signal, ema_cross_signal)
-
-    return current_price, rsi, ema_trend, ema_signal, candle_pattern, final_recommendation
+    return current_price, rsi, macd, stochastic_rsi, atr, candle_pattern
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
@@ -137,16 +143,16 @@ def handle_message(message):
     try:
         klines = get_klines_twelvedata(symbol, interval)
         if klines:
-            price, rsi, ema_trend, ema_signal, candle_pattern, final_recommendation = analyze_klines(klines)
+            price, rsi, macd, stochastic_rsi, atr, candle_pattern = analyze_klines(klines)
 
             msg = (
                 f"🔍 {symbol}/USD [{interval}]\n"
                 f"💰 Price: ${price:.2f}\n"
                 f"📊 RSI(14): {rsi:.2f}\n"
-                f"📈 EMA Trend: {ema_trend}\n"
-                f"🪙 EMA Signal: {ema_signal}\n"
-                f"🕯️ Candle: {candle_pattern}\n"
-                f"📌 Recommendation: {final_recommendation}"
+                f"📈 MACD: {macd:.2f}\n"
+                f"📈 Stochastic RSI: {stochastic_rsi:.2f}%\n"
+                f"📈 ATR: {atr:.2f}\n"
+                f"🕯️ Candle: {candle_pattern}"
             )
         else:
             raise ValueError("No Klines from TwelveData")
