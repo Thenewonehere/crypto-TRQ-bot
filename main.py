@@ -115,6 +115,31 @@ def detect_candle_pattern(opens, highs, lows, closes):
         return "Bearish Engulfing"
     return "No clear pattern"
 
+def generate_final_recommendation(rsi, macd, stochastic_rsi):
+    score = 0
+
+    if rsi < 30:
+        score += 1
+    elif rsi > 70:
+        score -= 1
+
+    if macd > 0:
+        score += 1
+    else:
+        score -= 1
+
+    if stochastic_rsi < 20:
+        score += 1
+    elif stochastic_rsi > 80:
+        score -= 1
+
+    if score >= 2:
+        return "🟢 Strong Buy"
+    elif score <= -2:
+        return "🔴 Strong Sell"
+    else:
+        return "🟠 Mixed Signal"
+
 def analyze_klines(klines):
     closes = np.array([float(k[4]) for k in klines], dtype=np.float64)
     opens = np.array([float(k[1]) for k in klines], dtype=np.float64)
@@ -128,8 +153,9 @@ def analyze_klines(klines):
     stochastic_rsi = calculate_stochastic_rsi(closes)
     atr = calculate_atr(highs, lows, closes)
     candle_pattern = detect_candle_pattern(opens, highs, lows, closes)
+    final_recommendation = generate_final_recommendation(rsi, macd, stochastic_rsi)
 
-    return current_price, rsi, macd, stochastic_rsi, atr, candle_pattern
+    return current_price, rsi, macd, stochastic_rsi, atr, candle_pattern, final_recommendation
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
@@ -143,7 +169,7 @@ def handle_message(message):
     try:
         klines = get_klines_twelvedata(symbol, interval)
         if klines:
-            price, rsi, macd, stochastic_rsi, atr, candle_pattern = analyze_klines(klines)
+            price, rsi, macd, stochastic_rsi, atr, candle_pattern, final_recommendation = analyze_klines(klines)
 
             msg = (
                 f"🔍 {symbol}/USD [{interval}]\n"
@@ -152,7 +178,8 @@ def handle_message(message):
                 f"📈 MACD: {macd:.2f}\n"
                 f"📈 Stochastic RSI: {stochastic_rsi:.2f}%\n"
                 f"📈 ATR: {atr:.2f}\n"
-                f"🕯️ Candle: {candle_pattern}"
+                f"🕯️ Candle: {candle_pattern}\n"
+                f"📌 Recommendation: {final_recommendation}"
             )
         else:
             raise ValueError("No Klines from TwelveData")
