@@ -6,25 +6,46 @@ from threading import Thread
 import telebot
 
 TOKEN = os.getenv("BOT_TOKEN")
+TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY")
+CMC_API_KEY = os.getenv("CMC_API_KEY")
 
 bot = telebot.TeleBot(TOKEN)
 
 # ====== Functions ======
 
-def get_klines_bybit(symbol, interval='D', limit=100):
-    url = f"https://api.bybit.com/v5/market/kline?category=spot&symbol={symbol}&interval={interval}&limit={limit}"
+def get_klines_twelvedata(symbol, interval='1day', outputsize=100):
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}/USD&interval={interval}&outputsize={outputsize}&apikey={TWELVE_DATA_API_KEY}"
     response = requests.get(url)
     if response.status_code == 200:
-        data = response.json().get('result', {}).get('list', [])
-        if not data:
-            # Try smaller limit if empty
-            url = f"https://api.bybit.com/v5/market/kline?category=spot&symbol={symbol}&interval={interval}&limit=50"
-            response = requests.get(url)
-            if response.status_code == 200:
-                data = response.json().get('result', {}).get('list', [])
-        return data
+        data = response.json()
+        if 'values' in data:
+            klines = []
+            for item in reversed(data['values']):
+                kline = [
+                    item['datetime'],
+                    float(item['open']),
+                    float(item['high']),
+                    float(item['low']),
+                    float(item['close']),
+                    float(item['volume'])
+                ]
+                klines.append(kline)
+            return klines
+    return []
+
+def get_price_coinmarketcap(symbol):
+    url = f"https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol={symbol}&convert=USD"
+    headers = {
+        "Accepts": "application/json",
+        "X-CMC_PRO_API_KEY": CMC_API_KEY,
+    }
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        data = response.json()
+        price = data['data'][symbol]['quote']['USD']['price']
+        return price
     else:
-        return []
+        return None
 
 def calculate_rsi(closes, period=14):
     deltas = np.diff(closes)
@@ -96,18 +117,18 @@ def handle_message(message):
     symbol = message.text.strip().upper()
 
     if symbol == "ETH":
-        symbols = ["ETHUSDT", "ETHBTC"]
+        symbols = ["ETH"]
     else:
-        symbols = [f"{symbol}USDT"]
+        symbols = [symbol]
 
     for sym in symbols:
         try:
-            klines = get_klines_bybit(sym)
+            klines = get_klines_twelvedata(sym)
             if klines:
                 price, rsi, ema_trend, ema_signal, candle_pattern, rsi_signal, ema_cross_signal = analyze_klines(klines)
 
                 msg = (
-                    f"\ud83d\udd0d {sym} [1D]\n"
+                    f"\ud83d\udd0d {sym}/USD [1D]\n"
                     f"\ud83d\udcb0 Price: ${price:.2f}\n"
                     f"\ud83d\udcca RSI(14): {rsi:.2f}\n"
                     f"\ud83d\udcc8 EMA Trend: {ema_trend}\n"
@@ -116,7 +137,16 @@ def handle_message(message):
                     f"\ud83d\udccc Recommendation:\n{rsi_signal}\n{ema_cross_signal}"
                 )
             else:
-                msg = f"⚠️ No data available for {sym}"
+                # fallback to CoinMarketCap price only
+                price = get_price_coinmarketcap(sym)
+                if price:
+                    msg = (
+                        f"\ud83d\udd0d {sym}/USD\n"
+                        f"\ud83d\udcb0 Price: ${price:.2f}\n"
+                        f"⚠️ Limited data (Price only)"
+                    )
+                else:
+                    msg = f"⚠️ No data available for {sym}"
 
         except Exception as e:
             msg = f"⚠️ Error fetching {sym}: {str(e)}"
