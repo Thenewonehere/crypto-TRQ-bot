@@ -6,155 +6,133 @@ from datetime import datetime
 from flask import Flask
 from threading import Thread
 import telebot
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-bot = telebot.TeleBot(BOT_TOKEN)
-CHAT_ID = '-1002400439132'
+# Read the token from environment variables
+TOKEN = os.getenv('BOT_TOKEN')
 
-# Flask server to keep bot alive
-app = Flask('')
-
-@app.route('/')
-def home():
-    return "Bot is running."
-
-def run():
-    app.run(host='0.0.0.0', port=8080)
-
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
-
-# === Market Functions ===
+bot = telebot.TeleBot(TOKEN)
+app = Flask(__name__)
 
 def get_klines(symbol, interval='1d', limit=100):
-    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
+    url = f"https://api.binance.com/api/v3/klines?symbol={symbol.upper()}&interval={interval}&limit={limit}"
     response = requests.get(url)
-    return response.json()
+    if response.status_code == 200:
+        return response.json()
+    else:
+        return []
 
-def calculate_rsi(closes, period=14):
+def calculate_rsi(data, period=14):
+    closes = np.array([float(x[4]) for x in data], dtype=float)
     deltas = np.diff(closes)
     seed = deltas[:period]
     up = seed[seed > 0].sum() / period
     down = -seed[seed < 0].sum() / period
     rs = up / down if down != 0 else 0
-    rsi = [100. - 100. / (1. + rs)]
-    for delta in deltas[period:]:
-        upval = max(delta, 0)
-        downval = -min(delta, 0)
-        up = (up * (period - 1) + upval) / period
-        down = (down * (period - 1) + downval) / period
+    rsi = np.zeros_like(closes)
+    rsi[:period] = 100. - 100. / (1. + rs)
+
+    for i in range(period, len(closes)):
+        delta = deltas[i - 1]
+        if delta > 0:
+            up_val = delta
+            down_val = 0.
+        else:
+            up_val = 0.
+            down_val = -delta
+
+        up = (up * (period - 1) + up_val) / period
+        down = (down * (period - 1) + down_val) / period
         rs = up / down if down != 0 else 0
-        rsi.append(100. - 100. / (1. + rs))
+        rsi[i] = 100. - 100. / (1. + rs)
+
     return round(rsi[-1], 2)
 
-def calculate_ema(prices, period):
-    return round(np.convolve(prices, np.ones(period)/period, mode='valid')[-1], 2)
+def calculate_ema(data, span):
+    closes = np.array([float(x[4]) for x in data], dtype=float)
+    return pd.Series(closes).ewm(span=span, adjust=False).mean().iloc[-1]
 
-def detect_candle_pattern(data):
-    o1, h1, l1, c1 = [float(x) for x in data[-2][:4]]
-    o2, h2, l2, c2 = [float(x) for x in data[-1][:4]]
-    body1 = abs(c1 - o1)
-    body2 = abs(c2 - o2)
+def analyze_symbol(symbol):
+    klines = get_klines(symbol)
+    
+    if not klines or len(klines) == 0:
+        return f"⚠️ Error: No data returned for {symbol.upper()}"
 
-    if c2 > o2 and o2 < c1 and c1 < o1 and body2 > body1:
-        return "✅ Bullish Engulfing"
-    if body2 < (h2 - l2) * 0.3 and (o2 - l2 > body2 * 2 or c2 - l2 > body2 * 2):
-        return "✅ Hammer"
-    return "🔷 No clear pattern"
+    try:
+        current_price = float(klines[-1][4])
+        rsi = calculate_rsi(klines)
+        ema50 = calculate_ema(klines, 50)
+        ema200 = calculate_ema(klines, 200)
 
-# === Main Logic ===
+        if ema50 > ema200:
+            ema_trend = "📈 Uptrend"
+        else:
+            ema_trend = "📉 Downtrend"
 
-symbols = [
-    "BTCUSDT", "ETHUSDT", "DOTUSDT", "XRPUSDT", "ETHBTC",
-    "CHZUSDT", "CHRUSDT", "RSRUSDT", "JASMYUSDT",
-    "FILUSDT", "KSMUSDT", "KDAUSDT"
-]
+        if current_price > ema50:
+            ema_signal = "✅ Above EMA50"
+        else:
+            ema_signal = "⚠️ Below EMA50"
 
-def check_market_and_alert():
-    for symbol in symbols:
-        try:
-            data = get_klines(symbol, '1d', 100)
-            closes = [float(k[4]) for k in data]
-            current_price = closes[-1]
-            rsi = calculate_rsi(closes)
-            ema_50 = calculate_ema(closes, 50)
-            ema_200 = calculate_ema(closes, 200)
-            candle = detect_candle_pattern(data)
+        candle_open = float(klines[-1][1])
+        candle_close = float(klines[-1][4])
 
-            ema_trend = "✅ Bullish" if ema_50 > ema_200 else "❌ Bearish"
-            ema_signal = "✅ Golden Cross" if ema_50 > ema_200 else "❌ Death Cross"
-            recommendation = "🟢 BUY" if rsi < 30 and ema_50 > ema_200 and "✅" in candle else "⚪ No Signal"
+        if candle_close > candle_open:
+            candle = "🟢 Bullish Candle"
+        else:
+            candle = "🔴 Bearish Candle"
 
-            if recommendation == "🟢 BUY":
-                msg = f"""🚨 BUY SIGNAL DETECTED!
+        recommendation = "✅ Buy" if (rsi < 30 and ema50 > ema200) else "⚠️ Wait"
 
-🔍 {symbol} [1D]
-💲 Price: ${round(current_price, 3)}
-📊 RSI: {rsi} (Oversold)
-📈 EMA50 > EMA200 ✅ Golden Cross
-🕯️ Candle Pattern: {candle}
-📌 Recommendation: {recommendation}
-"""
-                bot.send_message(chat_id=CHAT_ID, text=msg)
+        return (
+            f"💰 Price: ${round(current_price, 3)}\n"
+            f"📊 RSI(14): {rsi}\n"
+            f"📈 EMA Trend: {ema_trend}\n"
+            f"📍 EMA Signal: {ema_signal}\n"
+            f"🕯️ Candle: {candle}\n"
+            f"📌 Recommendation: {recommendation}"
+        )
+    except Exception as e:
+        return f"⚠️ Error analyzing {symbol.upper()}: {str(e)}"
 
-        except Exception as e:
-            print(f"Error with {symbol}: {e}")
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    bot.reply_to(message, "👋 Send me a crypto symbol (like BTC, ETH, DOT) and I'll analyze it for you!")
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
-    symbol = message.text.strip().upper()
-    responses = []
+    text = message.text.strip().lower()
 
-    if symbol == "ETH":
-        requests_list = ["ETHUSDT", "ETHBTC"]
+    symbol_mapping = {
+        'eth': ['ETHUSDT', 'ETHBTC'],
+        'btc': ['BTCUSDT'],
+        'dot': ['DOTUSDT'],
+        'rsr': ['RSRUSDT'],
+        # Add more mappings if you want
+    }
+
+    if text in symbol_mapping:
+        responses = []
+        for sym in symbol_mapping[text]:
+            analysis = analyze_symbol(sym)
+            responses.append(f"🔍 {sym} Analysis:\n{analysis}")
+        reply = "\n\n".join(responses)
     else:
-        if not symbol.endswith("USDT") and symbol != "ETHBTC":
-            symbol += "USDT"
-        requests_list = [symbol]
+        reply = "⚠️ Invalid or unsupported symbol."
 
-    for s in requests_list:
-        try:
-            data = get_klines(s, '1d', 100)
-            closes = [float(k[4]) for k in data]
-            current_price = closes[-1]
-            rsi = calculate_rsi(closes)
-            ema_50 = calculate_ema(closes, 50)
-            ema_200 = calculate_ema(closes, 200)
-            candle = detect_candle_pattern(data)
+    bot.reply_to(message, reply)
 
-            ema_trend = "✅ Bullish" if ema_50 > ema_200 else "❌ Bearish"
-            ema_signal = "✅ Golden Cross" if ema_50 > ema_200 else "❌ Death Cross"
-            recommendation = "🟢 BUY" if rsi < 30 and ema_50 > ema_200 and "✅" in candle else "⚪ No Signal"
+@app.route('/')
+def home():
+    return "Bot is running!"
 
-            msg = f"""🔍 {s} [1D]
-💲 Price: ${round(current_price, 3)}
-📊 RSI(14): {rsi}
-📈 EMA Trend: {ema_trend}
-🌐 EMA Signal: {ema_signal}
-🕯️ Candle: {candle}
-📌 Recommendation: {recommendation}
-"""
-            responses.append(msg)
-        except Exception as e:
-            responses.append(f"⚠️ Error getting data for {s}: {e}")
+def run():
+    app.run(host="0.0.0.0", port=8080)
 
-    for reply in responses:
-        bot.reply_to(message, reply)
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
 
-def auto_checker():
-    while True:
-        now = datetime.utcnow().strftime('%H:%M')
-        if now == "00:10":
-            check_market_and_alert()
-            time.sleep(60)
-        time.sleep(20)
-
-# === Run bot ===
 if __name__ == "__main__":
     keep_alive()
-    Thread(target=auto_checker).start()
-    bot.infinity_polling()
+    print("Bot is polling...")
+    bot.polling(non_stop=True)
