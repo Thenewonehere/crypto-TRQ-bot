@@ -90,6 +90,18 @@ def detect_candle_pattern(opens, highs, lows, closes):
         return "Bearish Engulfing"
     return "No clear pattern"
 
+def get_final_recommendation(rsi_signal, ema_cross_signal):
+    if rsi_signal == "🟢 Buy Signal" and ema_cross_signal == "🟢 Buy Signal":
+        return "🟢 Strong Buy"
+    elif rsi_signal == "🔴 Sell Signal" and ema_cross_signal == "🔴 Sell Signal":
+        return "🔴 Strong Sell"
+    elif rsi_signal == "🟢 Buy Signal" and ema_cross_signal == "⚪ No Signal":
+        return "🟢 Weak Buy"
+    elif rsi_signal == "🔴 Sell Signal" and ema_cross_signal == "⚪ No Signal":
+        return "🔴 Weak Sell"
+    else:
+        return "🟠 Mixed Signal"
+
 def analyze_klines(klines):
     closes = np.array([float(k[4]) for k in klines], dtype=np.float64)
     opens = np.array([float(k[1]) for k in klines], dtype=np.float64)
@@ -109,7 +121,9 @@ def analyze_klines(klines):
     rsi_signal = "🟢 Buy Signal" if rsi < 30 else ("🔴 Sell Signal" if rsi > 70 else "⚪ No Signal")
     ema_cross_signal = "🟢 Buy Signal" if ema50 > ema200 else "🔴 Sell Signal"
 
-    return current_price, rsi, ema_trend, ema_signal, candle_pattern, rsi_signal, ema_cross_signal
+    final_recommendation = get_final_recommendation(rsi_signal, ema_cross_signal)
+
+    return current_price, rsi, ema_trend, ema_signal, candle_pattern, final_recommendation
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
@@ -124,7 +138,7 @@ def handle_message(message):
         try:
             klines = get_klines_twelvedata(sym)
             if klines:
-                price, rsi, ema_trend, ema_signal, candle_pattern, rsi_signal, ema_cross_signal = analyze_klines(klines)
+                price, rsi, ema_trend, ema_signal, candle_pattern, final_recommendation = analyze_klines(klines)
 
                 msg = (
                     f"🔍 {sym}/USD [1D]\n"
@@ -133,7 +147,7 @@ def handle_message(message):
                     f"📈 EMA Trend: {ema_trend}\n"
                     f"🪙 EMA Signal: {ema_signal}\n"
                     f"🕯️ Candle: {candle_pattern}\n"
-                    f"📌 Recommendation:\n{rsi_signal}\n{ema_cross_signal}"
+                    f"📌 Recommendation: {final_recommendation}"
                 )
             else:
                 raise ValueError("No Klines from TwelveData")
