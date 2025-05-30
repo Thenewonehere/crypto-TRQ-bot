@@ -11,11 +11,18 @@ bot = telebot.TeleBot(TOKEN)
 
 # ====== Functions ======
 
-def get_klines_bybit(symbol, interval='D', limit=200):
+def get_klines_bybit(symbol, interval='D', limit=100):
     url = f"https://api.bybit.com/v5/market/kline?symbol={symbol}&interval={interval}&limit={limit}"
     response = requests.get(url)
     if response.status_code == 200:
-        return response.json().get('result', {}).get('list', [])
+        data = response.json().get('result', {}).get('list', [])
+        if not data:
+            # Try smaller limit if empty
+            url = f"https://api.bybit.com/v5/market/kline?symbol={symbol}&interval={interval}&limit=50"
+            response = requests.get(url)
+            if response.status_code == 200:
+                data = response.json().get('result', {}).get('list', [])
+        return data
     else:
         return []
 
@@ -46,7 +53,6 @@ def calculate_rsi(closes, period=14):
     return rsi[-1]
 
 def detect_candle_pattern(opens, highs, lows, closes):
-    # Simplified candlestick pattern detection
     body = abs(closes[-1] - opens[-1])
     candle_range = highs[-1] - lows[-1]
     upper_shadow = highs[-1] - max(opens[-1], closes[-1])
