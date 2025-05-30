@@ -12,13 +12,13 @@ bot = telebot.TeleBot(TOKEN)
 # ====== Functions ======
 
 def get_klines_bybit(symbol, interval='D', limit=100):
-    url = f"https://api.bybit.com/v5/market/kline?symbol={symbol}&interval={interval}&limit={limit}"
+    url = f"https://api.bybit.com/v5/market/kline?category=spot&symbol={symbol}&interval={interval}&limit={limit}"
     response = requests.get(url)
     if response.status_code == 200:
         data = response.json().get('result', {}).get('list', [])
         if not data:
             # Try smaller limit if empty
-            url = f"https://api.bybit.com/v5/market/kline?symbol={symbol}&interval={interval}&limit=50"
+            url = f"https://api.bybit.com/v5/market/kline?category=spot&symbol={symbol}&interval={interval}&limit=50"
             response = requests.get(url)
             if response.status_code == 200:
                 data = response.json().get('result', {}).get('list', [])
