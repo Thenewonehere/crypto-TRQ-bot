@@ -104,16 +104,16 @@ def detect_candle_pattern(opens, highs, lows, closes):
     lower_shadow = min(opens[-1], closes[-1]) - lows[-1]
 
     if body < candle_range * 0.3 and upper_shadow > body * 2 and lower_shadow < body:
-        return "Shooting Star"
+        return "نجم هابط"
     if body < candle_range * 0.3 and lower_shadow > body * 2 and upper_shadow < body:
-        return "Hammer"
+        return "مطرقة"
     if abs(opens[-1] - closes[-1]) <= (highs[-1] - lows[-1]) * 0.1:
-        return "Doji"
+        return "دوجي"
     if closes[-1] > opens[-1] and closes[-2] < opens[-2] and closes[-1] > opens[-2] and opens[-1] < closes[-2]:
-        return "Bullish Engulfing"
+        return "ابتلاع شرائي"
     if closes[-1] < opens[-1] and closes[-2] > opens[-2] and opens[-1] > closes[-2] and closes[-1] < opens[-2]:
-        return "Bearish Engulfing"
-    return "No clear pattern"
+        return "ابتلاع بيعي"
+    return "نمط غير واضح"
 
 def generate_final_recommendation(rsi, macd, stochastic_rsi):
     score = 0
@@ -134,11 +134,20 @@ def generate_final_recommendation(rsi, macd, stochastic_rsi):
         score -= 1
 
     if score >= 2:
-        return "🟢 Strong Buy"
+        return "🟢 شراء قوي"
     elif score <= -2:
-        return "🔴 Strong Sell"
+        return "🔴 بيع قوي"
     else:
-        return "🟠 Mixed Signal"
+        return "🟠 إشارة متضاربة"
+
+def volatility_level(atr, price):
+    ratio = (atr / price) * 100
+    if ratio < 1.5:
+        return "🔵 سوق مستقر — مخاطرة منخفضة"
+    elif ratio < 3:
+        return "🟡 تذبذب متوسط — مخاطرة متوسطة"
+    else:
+        return "🔴 تذبذب عالي — مخاطرة مرتفعة ⚠️"
 
 def analyze_klines(klines):
     closes = np.array([float(k[4]) for k in klines], dtype=np.float64)
@@ -154,14 +163,15 @@ def analyze_klines(klines):
     atr = calculate_atr(highs, lows, closes)
     candle_pattern = detect_candle_pattern(opens, highs, lows, closes)
     final_recommendation = generate_final_recommendation(rsi, macd, stochastic_rsi)
+    volatility = volatility_level(atr, current_price)
 
-    return current_price, rsi, macd, stochastic_rsi, atr, candle_pattern, final_recommendation
+    return current_price, candle_pattern, final_recommendation, volatility
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     text = message.text.strip().upper().split()
     symbol = text[0]
-    interval = '1day'  # Default
+    interval = '1day'
 
     if len(text) > 1:
         interval = text[1]
@@ -169,17 +179,15 @@ def handle_message(message):
     try:
         klines = get_klines_twelvedata(symbol, interval)
         if klines:
-            price, rsi, macd, stochastic_rsi, atr, candle_pattern, final_recommendation = analyze_klines(klines)
+            price, candle_pattern, final_recommendation, volatility = analyze_klines(klines)
 
             msg = (
-                f"🔍 {symbol}/USD [{interval}]\n"
-                f"💰 Price: ${price:.2f}\n"
-                f"📊 RSI(14): {rsi:.2f}\n"
-                f"📈 MACD: {macd:.2f}\n"
-                f"📈 Stochastic RSI: {stochastic_rsi:.2f}%\n"
-                f"📈 ATR: {atr:.2f}\n"
-                f"🕯️ Candle: {candle_pattern}\n"
-                f"📌 Recommendation: {final_recommendation}"
+                f"🔍 تحليل {symbol}/USD [{interval}]\n"
+                f"💰 السعر الحالي: ${price:.2f}\n"
+                f"📌 التوصية النهائية: {final_recommendation}\n\n"
+                f"🕯️ نمط الشمعة: {candle_pattern}\n"
+                f"🌡️ {volatility}\n\n"
+                f"✅ الملخص: بناءً على التحليل، القرار يميل إلى {final_recommendation.split()[1]} مع {volatility.split('—')[1]}."
             )
         else:
             raise ValueError("No Klines from TwelveData")
@@ -188,12 +196,12 @@ def handle_message(message):
         price = get_price_coinmarketcap(symbol)
         if price:
             msg = (
-                f"🔍 {symbol}/USD\n"
-                f"💰 Price: ${price:.2f}\n"
-                f"⚠️ Limited data (Price only)"
+                f"🔍 تحليل {symbol}/USD\n"
+                f"💰 السعر الحالي: ${price:.2f}\n"
+                f"⚠️ البيانات المتوفرة محدودة (السعر فقط)"
             )
         else:
-            msg = f"⚠️ No data available for {symbol}"
+            msg = f"⚠️ لا توجد بيانات متوفرة للرمز {symbol}"
 
     bot.reply_to(message, msg)
 
@@ -203,7 +211,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot is running!"
+    return "البوت يعمل بنجاح!"
 
 def start_bot():
     bot.infinity_polling()
